@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 from collections import Counter
 from dataclasses import dataclass
-from statistics import mean
 
 
 @dataclass(frozen=True)
@@ -25,7 +23,6 @@ class MetricsSnapshot:
 
 class MetricsCollector:
     def __init__(self) -> None:
-        self._lock = asyncio.Lock()
         self._total_requests_sent = 0
         self._total_responses_received = 0
         self._status_classes: Counter[str] = Counter()
@@ -33,66 +30,77 @@ class MetricsCollector:
         self._response_types: Counter[str] = Counter()
         self._failed_requests = 0
         self._timed_out_requests = 0
-        self._response_times_ms: list[float] = []
+        self._response_time_sum_ms = 0.0
+        self._response_time_min_ms = 0.0
+        self._response_time_max_ms = 0.0
+        self._latency_bin_size_ms = 10.0
+        self._latency_max_ms = 120_000.0
+        self._latency_bins = [0] * (int(self._latency_max_ms / self._latency_bin_size_ms) + 1)
 
-    async def record_request_sent(self) -> None:
-        async with self._lock:
-            self._total_requests_sent += 1
+    def record_request_sent(self) -> None:
+        self._total_requests_sent += 1
 
-    async def record_response(
+    def record_response(
         self, status_code: int, elapsed_s: float, content_type: str | None, is_failure: bool = False
     ) -> None:
         response_ms = elapsed_s * 1000
         status_class = f"{status_code // 100}xx"
         normalized_type = _normalize_content_type(content_type)
-        async with self._lock:
-            self._total_responses_received += 1
-            self._status_classes[status_class] += 1
-            self._status_codes[status_code] += 1
-            self._response_types[normalized_type] += 1
-            if is_failure:
-                self._failed_requests += 1
-            self._response_times_ms.append(response_ms)
-
-    async def record_failure(self) -> None:
-        async with self._lock:
+        self._total_responses_received += 1
+        self._status_classes[status_class] += 1
+        self._status_codes[status_code] += 1
+        self._response_types[normalized_type] += 1
+        if is_failure:
             self._failed_requests += 1
 
-    async def record_timeout(self) -> None:
-        async with self._lock:
-            self._timed_out_requests += 1
+        self._response_time_sum_ms += response_ms
+        if self._total_responses_received == 1:
+            self._response_time_min_ms = response_ms
+            self._response_time_max_ms = response_ms
+        else:
+            self._response_time_min_ms = min(self._response_time_min_ms, response_ms)
+            self._response_time_max_ms = max(self._response_time_max_ms, response_ms)
 
-    async def snapshot(self) -> MetricsSnapshot:
-        async with self._lock:
-            response_times = list(self._response_times_ms)
-            return MetricsSnapshot(
-                total_requests_sent=self._total_requests_sent,
-                total_responses_received=self._total_responses_received,
-                status_classes=dict(self._status_classes),
-                status_codes=dict(self._status_codes),
-                response_types=dict(self._response_types),
-                failed_requests=self._failed_requests,
-                timed_out_requests=self._timed_out_requests,
-                avg_response_ms=mean(response_times) if response_times else 0.0,
-                min_response_ms=min(response_times) if response_times else 0.0,
-                max_response_ms=max(response_times) if response_times else 0.0,
-                p50_response_ms=_percentile(response_times, 50),
-                p95_response_ms=_percentile(response_times, 95),
-                p99_response_ms=_percentile(response_times, 99),
-            )
+        bin_idx = int(response_ms / self._latency_bin_size_ms)
+        if bin_idx >= len(self._latency_bins):
+            bin_idx = len(self._latency_bins) - 1
+        self._latency_bins[bin_idx] += 1
+
+    def record_failure(self) -> None:
+        self._failed_requests += 1
+
+    def record_timeout(self) -> None:
+        self._timed_out_requests += 1
+
+    def snapshot(self) -> MetricsSnapshot:
+        total = self._total_responses_received
+        return MetricsSnapshot(
+            total_requests_sent=self._total_requests_sent,
+            total_responses_received=total,
+            status_classes=dict(self._status_classes),
+            status_codes=dict(self._status_codes),
+            response_types=dict(self._response_types),
+            failed_requests=self._failed_requests,
+            timed_out_requests=self._timed_out_requests,
+            avg_response_ms=(self._response_time_sum_ms / total) if total else 0.0,
+            min_response_ms=self._response_time_min_ms if total else 0.0,
+            max_response_ms=self._response_time_max_ms if total else 0.0,
+            p50_response_ms=_percentile_from_histogram(self._latency_bins, total, 50, self._latency_bin_size_ms),
+            p95_response_ms=_percentile_from_histogram(self._latency_bins, total, 95, self._latency_bin_size_ms),
+            p99_response_ms=_percentile_from_histogram(self._latency_bins, total, 99, self._latency_bin_size_ms),
+        )
 
 
-def _percentile(values: list[float], percentile: int) -> float:
-    if not values:
+def _percentile_from_histogram(bins: list[int], total: int, percentile: int, bin_size_ms: float) -> float:
+    if total <= 0:
         return 0.0
-    sorted_values = sorted(values)
-    idx = (len(sorted_values) - 1) * (percentile / 100)
-    lower = int(idx)
-    upper = min(lower + 1, len(sorted_values) - 1)
-    if lower == upper:
-        return sorted_values[lower]
-    weight = idx - lower
-    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+    target = total * (percentile / 100)
+    seen = 0
+    for idx, count in enumerate(bins):
+        seen += count
+        if seen >= target:
+            return idx * bin_size_ms
+    return (len(bins) - 1) * bin_size_ms
 
 
 def _normalize_content_type(content_type: str | None) -> str:

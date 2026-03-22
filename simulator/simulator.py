@@ -33,8 +33,14 @@ class LoadSimulator:
             max_keepalive_connections=self._config.client_max_keepalive_connections,
             keepalive_expiry=self._config.client_keepalive_expiry_s,
         )
+        timeout = httpx.Timeout(
+            connect=self._config.request.connect_timeout_s,
+            read=self._config.request.read_timeout_s,
+            write=self._config.request.write_timeout_s,
+            pool=self._config.request.pool_timeout_s,
+        )
         client_kwargs = {
-            "timeout": self._config.request.timeout_s,
+            "timeout": timeout,
             "follow_redirects": True,
             "limits": limits,
             "http2": self._config.client_http2,
@@ -54,7 +60,7 @@ class LoadSimulator:
                 raise
 
         elapsed_s = time.perf_counter() - start
-        snapshot = await self._metrics.snapshot()
+        snapshot = self._metrics.snapshot()
         return snapshot, elapsed_s
 
     async def _execute_users(
@@ -103,7 +109,7 @@ class LoadSimulator:
                 if should_stop:
                     break
 
-            await self._metrics.record_request_sent()
+            self._metrics.record_request_sent()
             point = sampler.sample()
             values = {
                 "HOST": self._config.host,
@@ -131,12 +137,12 @@ class LoadSimulator:
                             self._config.request.method, url, headers=headers, content=body
                         )
             except httpx.TimeoutException:
-                await self._metrics.record_timeout()
+                self._metrics.record_timeout()
             except Exception:
-                await self._metrics.record_failure()
+                self._metrics.record_failure()
             else:
                 elapsed_s = time.perf_counter() - started
-                await self._metrics.record_response(
+                self._metrics.record_response(
                     response.status_code,
                     elapsed_s,
                     response.headers.get("content-type"),
@@ -151,7 +157,7 @@ class LoadSimulator:
             while True:
                 now_s = time.perf_counter()
                 elapsed_s = min(now_s - start_time, self._config.duration_s)
-                snapshot = await self._metrics.snapshot()
+                snapshot = self._metrics.snapshot()
                 active_users = self._active_users_at_elapsed(elapsed_s)
                 line = render_realtime_progress(
                     snapshot=snapshot,

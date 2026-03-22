@@ -83,6 +83,10 @@ def test_http_client_tuning_defaults() -> None:
     assert cfg.client_http2 is False
     assert cfg.client_trust_env is True
     assert cfg.max_in_flight_requests is None
+    assert cfg.request.connect_timeout_s == cfg.request.timeout_s
+    assert cfg.request.read_timeout_s == cfg.request.timeout_s
+    assert cfg.request.write_timeout_s == cfg.request.timeout_s
+    assert cfg.request.pool_timeout_s == cfg.request.timeout_s
 
 
 def test_http_client_tuning_validation() -> None:
@@ -95,3 +99,14 @@ def test_http_client_tuning_validation() -> None:
         assert "client_max_keepalive_connections must be <= client_max_connections" in str(exc)
     else:
         raise AssertionError("ValueError not raised for invalid client tuning")
+
+
+def test_request_timeout_validation() -> None:
+    payload = _base_payload()
+    payload["request"]["connect_timeout_s"] = 0
+    try:
+        LoadTestConfig.from_dict(payload)
+    except ValueError as exc:
+        assert "request.connect_timeout_s must be > 0" in str(exc)
+    else:
+        raise AssertionError("ValueError not raised for invalid connect timeout")

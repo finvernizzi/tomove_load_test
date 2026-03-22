@@ -75,6 +75,10 @@ Main fields:
 - `request.body_template`: optional request body template (useful for `POST`/`PUT`, supports placeholders).
 - `request.headers`: static headers (values can also include placeholders).
 - `request.timeout_s`: HTTP timeout.
+- `request.connect_timeout_s`: optional connect timeout override.
+- `request.read_timeout_s`: optional read timeout override.
+- `request.write_timeout_s`: optional write timeout override.
+- `request.pool_timeout_s`: optional pool-acquire timeout override.
 - `geo.area`: selected named area (for example `Turin`).
 - `geo.named_areas.<Name>`: bounding box for random lat/lng generation.
 - `export.json_path`: optional output JSON path.

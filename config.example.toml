@@ -26,6 +26,11 @@ url_template = "https://{{HOST}}/{{DOMAIN}}/mobile/{{API_VERSION}}/messages?doma
 # For POST/PUT, optionally send a templated body:
 # body_template = '''{"lat":"{{RANDOM_LAT}}","lng":"{{RANDOM_LNG}}","radius":"{{RADIUS}}"}'''
 timeout_s = 10
+# Optional granular timeout tuning (defaults to timeout_s when omitted):
+# connect_timeout_s = 5
+# read_timeout_s = 15
+# write_timeout_s = 15
+# pool_timeout_s = 5
 
 [request.headers]
 Accept = "application/json"

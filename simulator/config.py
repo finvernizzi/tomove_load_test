@@ -47,6 +47,10 @@ class RequestConfig:
     body_template: str | None
     headers: dict[str, str]
     timeout_s: float
+    connect_timeout_s: float
+    read_timeout_s: float
+    write_timeout_s: float
+    pool_timeout_s: float
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,10 @@ class LoadTestConfig:
                 ),
                 headers={str(k): str(v) for k, v in request_payload.get("headers", {}).items()},
                 timeout_s=float(request_payload.get("timeout_s", 10.0)),
+                connect_timeout_s=float(request_payload.get("connect_timeout_s", request_payload.get("timeout_s", 10.0))),
+                read_timeout_s=float(request_payload.get("read_timeout_s", request_payload.get("timeout_s", 10.0))),
+                write_timeout_s=float(request_payload.get("write_timeout_s", request_payload.get("timeout_s", 10.0))),
+                pool_timeout_s=float(request_payload.get("pool_timeout_s", request_payload.get("timeout_s", 10.0))),
             ),
             geo=GeoConfig(
                 area=str(geo_payload["area"]),
@@ -156,6 +164,14 @@ class LoadTestConfig:
             raise ValueError("radius_m must be > 0")
         if self.request.timeout_s <= 0:
             raise ValueError("request.timeout_s must be > 0")
+        if self.request.connect_timeout_s <= 0:
+            raise ValueError("request.connect_timeout_s must be > 0")
+        if self.request.read_timeout_s <= 0:
+            raise ValueError("request.read_timeout_s must be > 0")
+        if self.request.write_timeout_s <= 0:
+            raise ValueError("request.write_timeout_s must be > 0")
+        if self.request.pool_timeout_s <= 0:
+            raise ValueError("request.pool_timeout_s must be > 0")
         if self.client_max_connections <= 0:
             raise ValueError("client_max_connections must be > 0")
         if self.client_max_keepalive_connections < 0:
