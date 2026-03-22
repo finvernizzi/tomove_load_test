@@ -6,6 +6,7 @@ interval_s = 180
 random_delay_min_s = 0
 random_delay_max_s = 5
 duration_s = 300
+warmup_s = 120
 ramp_up_s = 240
 summary_interval_s = 5
 radius_m = 5000
@@ -22,6 +23,10 @@ max_in_flight_requests = 300
 method = "GET"
 url_template = "https://{{HOST}}/{{DOMAIN}}/mobile/{{API_VERSION}}/messages?domain={{DOMAIN}}&no_jws=true&lat={{RANDOM_LAT}}&lng={{RANDOM_LNG}}&radius={{RADIUS}}"
 timeout_s = 30
+connect_timeout_s = 5
+read_timeout_s = 30
+write_timeout_s = 30
+pool_timeout_s = 8
 
 [request.headers]
 Accept = "application/json"

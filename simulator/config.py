@@ -63,6 +63,7 @@ class LoadTestConfig:
     random_delay_min_s: float
     random_delay_max_s: float
     duration_s: float
+    warmup_s: float
     ramp_up_s: float
     summary_interval_s: float
     radius_m: int
@@ -107,6 +108,7 @@ class LoadTestConfig:
             random_delay_min_s=float(payload.get("random_delay_min_s", 0.0)),
             random_delay_max_s=float(payload.get("random_delay_max_s", 0.0)),
             duration_s=float(payload["duration_s"]),
+            warmup_s=float(payload.get("warmup_s", 0.0)),
             ramp_up_s=float(payload.get("ramp_up_s", 0.0)),
             summary_interval_s=float(payload.get("summary_interval_s", 5.0)),
             radius_m=int(payload.get("radius_m", 5000)),
@@ -156,6 +158,8 @@ class LoadTestConfig:
             raise ValueError("random_delay_min_s must be <= random_delay_max_s")
         if self.duration_s <= 0:
             raise ValueError("duration_s must be > 0")
+        if self.warmup_s < 0:
+            raise ValueError("warmup_s must be >= 0")
         if self.ramp_up_s < 0:
             raise ValueError("ramp_up_s must be >= 0")
         if self.summary_interval_s <= 0:

@@ -26,8 +26,9 @@ class LoadSimulator:
         if stop_event is None:
             stop_event = asyncio.Event()
 
-        start = time.perf_counter()
-        end_time = start + self._config.duration_s
+        run_start = time.perf_counter()
+        measurement_start = run_start + self._config.warmup_s
+        end_time = measurement_start + self._config.duration_s
         limits = httpx.Limits(
             max_connections=self._config.client_max_connections,
             max_keepalive_connections=self._config.client_max_keepalive_connections,
@@ -49,38 +50,64 @@ class LoadSimulator:
 
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
-                await self._execute_users(start, end_time, stop_event, client)
+                await self._execute_users(run_start, measurement_start, end_time, stop_event, client)
         except ImportError as exc:
             if self._config.client_http2 and "h2" in str(exc).lower():
                 print("HTTP/2 requested but 'h2' is not installed; falling back to HTTP/1.1.")
                 client_kwargs["http2"] = False
                 async with httpx.AsyncClient(**client_kwargs) as client:
-                    await self._execute_users(start, end_time, stop_event, client)
+                    await self._execute_users(run_start, measurement_start, end_time, stop_event, client)
             else:
                 raise
 
-        elapsed_s = time.perf_counter() - start
+        elapsed_s = max(time.perf_counter() - measurement_start, 0.0)
         snapshot = self._metrics.snapshot()
         return snapshot, elapsed_s
 
     async def _execute_users(
-        self, start: float, end_time: float, stop_event: asyncio.Event, client: httpx.AsyncClient
+        self,
+        run_start: float,
+        measurement_start: float,
+        end_time: float,
+        stop_event: asyncio.Event,
+        client: httpx.AsyncClient,
     ) -> None:
         users = [
-            asyncio.create_task(self._run_user(user_id, end_time, stop_event, client), name=f"user-{user_id}")
+            asyncio.create_task(
+                self._run_user(user_id, measurement_start, end_time, stop_event, client), name=f"user-{user_id}"
+            )
             for user_id in range(self._config.users)
         ]
-        summary_task = asyncio.create_task(self._emit_realtime_summary(start, end_time, stop_event), name="summary")
+        summary_task: asyncio.Task[None] | None = None
+
+        if measurement_start > run_start:
+            should_stop = await self._sleep_or_stop(measurement_start - run_start, stop_event)
+            if not should_stop:
+                summary_task = asyncio.create_task(
+                    self._emit_realtime_summary(run_start, measurement_start, end_time, stop_event),
+                    name="summary",
+                )
+        else:
+            summary_task = asyncio.create_task(
+                self._emit_realtime_summary(run_start, measurement_start, end_time, stop_event),
+                name="summary",
+            )
 
         await asyncio.gather(*users)
-        summary_task.cancel()
-        try:
-            await summary_task
-        except asyncio.CancelledError:
-            pass
+        if summary_task is not None:
+            summary_task.cancel()
+            try:
+                await summary_task
+            except asyncio.CancelledError:
+                pass
 
     async def _run_user(
-        self, user_id: int, end_time: float, stop_event: asyncio.Event, client: httpx.AsyncClient
+        self,
+        user_id: int,
+        measurement_start: float,
+        end_time: float,
+        stop_event: asyncio.Event,
+        client: httpx.AsyncClient,
     ) -> None:
         ramp_offset_s = self._compute_ramp_offset(user_id)
         user_start_s = time.perf_counter()
@@ -113,7 +140,9 @@ class LoadSimulator:
             if time.perf_counter() >= end_time:
                 break
 
-            self._metrics.record_request_sent()
+            is_measured = time.perf_counter() >= measurement_start
+            if is_measured:
+                self._metrics.record_request_sent()
             point = sampler.sample()
             values = {
                 "HOST": self._config.host,
@@ -143,28 +172,34 @@ class LoadSimulator:
                             self._config.request.method, url, headers=headers, content=body
                         )
             except httpx.TimeoutException:
-                self._metrics.record_timeout()
+                if is_measured:
+                    self._metrics.record_timeout()
             except Exception:
-                self._metrics.record_failure()
+                if is_measured:
+                    self._metrics.record_failure()
             else:
-                elapsed_s = time.perf_counter() - started
-                self._metrics.record_response(
-                    response.status_code,
-                    elapsed_s,
-                    response.headers.get("content-type"),
-                    is_failure=self._is_failure_status(response.status_code),
-                )
+                if is_measured:
+                    elapsed_s = time.perf_counter() - started
+                    self._metrics.record_response(
+                        response.status_code,
+                        elapsed_s,
+                        response.headers.get("content-type"),
+                        is_failure=self._is_failure_status(response.status_code),
+                    )
             next_scheduled_s += self._config.interval_s
 
-    async def _emit_realtime_summary(self, start_time: float, end_time: float, stop_event: asyncio.Event) -> None:
+    async def _emit_realtime_summary(
+        self, run_start: float, measurement_start: float, end_time: float, stop_event: asyncio.Event
+    ) -> None:
         refresh_s = min(self._config.summary_interval_s, 0.25)
         previous_length = 0
         try:
             while True:
                 now_s = time.perf_counter()
-                elapsed_s = min(now_s - start_time, self._config.duration_s)
+                elapsed_s = min(now_s - measurement_start, self._config.duration_s)
+                elapsed_s = max(elapsed_s, 0.0)
                 snapshot = self._metrics.snapshot()
-                active_users = self._active_users_at_elapsed(elapsed_s)
+                active_users = self._active_users_at_elapsed(max(now_s - run_start, 0.0))
                 line = render_realtime_progress(
                     snapshot=snapshot,
                     elapsed_s=elapsed_s,

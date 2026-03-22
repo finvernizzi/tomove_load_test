@@ -60,6 +60,7 @@ Main fields:
 - `random_delay_min_s`: minimum random delay added before a scheduled request.
 - `random_delay_max_s`: maximum random delay added before a scheduled request.
 - `duration_s`: total test duration in seconds.
+- `warmup_s`: optional pre-test warmup duration (excluded from final stats and added on top of `duration_s`).
 - `ramp_up_s`: optional startup spread (seconds) to avoid simultaneous start.
 - `radius_m`: radius used in the request template.
 - `summary_interval_s`: real-time summary print interval.

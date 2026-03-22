@@ -37,6 +37,7 @@ def test_random_delay_defaults_to_zero() -> None:
     cfg = LoadTestConfig.from_dict(_base_payload())
     assert cfg.random_delay_min_s == 0.0
     assert cfg.random_delay_max_s == 0.0
+    assert cfg.warmup_s == 0.0
 
 
 def test_random_delay_bounds_validation() -> None:
@@ -110,3 +111,14 @@ def test_request_timeout_validation() -> None:
         assert "request.connect_timeout_s must be > 0" in str(exc)
     else:
         raise AssertionError("ValueError not raised for invalid connect timeout")
+
+
+def test_warmup_validation() -> None:
+    payload = _base_payload()
+    payload["warmup_s"] = -1
+    try:
+        LoadTestConfig.from_dict(payload)
+    except ValueError as exc:
+        assert "warmup_s must be >= 0" in str(exc)
+    else:
+        raise AssertionError("ValueError not raised for invalid warmup")

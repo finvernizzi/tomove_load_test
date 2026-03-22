@@ -6,6 +6,7 @@ interval_s = 180
 random_delay_min_s = 0
 random_delay_max_s = 5
 duration_s = 900
+warmup_s = 0
 ramp_up_s = 60
 summary_interval_s = 5
 radius_m = 5000
