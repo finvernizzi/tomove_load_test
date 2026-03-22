@@ -68,6 +68,12 @@ class LoadTestConfig:
     export_csv: str | None
     random_seed: int | None
     failure_statuses: tuple[str, ...]
+    client_max_connections: int
+    client_max_keepalive_connections: int
+    client_keepalive_expiry_s: float
+    client_http2: bool
+    client_trust_env: bool
+    max_in_flight_requests: int | None
 
     @classmethod
     def from_toml(cls, path: str | Path) -> "LoadTestConfig":
@@ -117,6 +123,14 @@ class LoadTestConfig:
             export_csv=payload.get("export", {}).get("csv_path"),
             random_seed=payload.get("random_seed"),
             failure_statuses=_parse_failure_statuses(payload.get("failure_statuses", ["4xx", "5xx"])),
+            client_max_connections=int(payload.get("client_max_connections", 1000)),
+            client_max_keepalive_connections=int(payload.get("client_max_keepalive_connections", 200)),
+            client_keepalive_expiry_s=float(payload.get("client_keepalive_expiry_s", 30.0)),
+            client_http2=bool(payload.get("client_http2", False)),
+            client_trust_env=bool(payload.get("client_trust_env", True)),
+            max_in_flight_requests=(
+                int(payload["max_in_flight_requests"]) if payload.get("max_in_flight_requests") is not None else None
+            ),
         )
         config.validate()
         return config
@@ -142,6 +156,16 @@ class LoadTestConfig:
             raise ValueError("radius_m must be > 0")
         if self.request.timeout_s <= 0:
             raise ValueError("request.timeout_s must be > 0")
+        if self.client_max_connections <= 0:
+            raise ValueError("client_max_connections must be > 0")
+        if self.client_max_keepalive_connections < 0:
+            raise ValueError("client_max_keepalive_connections must be >= 0")
+        if self.client_max_keepalive_connections > self.client_max_connections:
+            raise ValueError("client_max_keepalive_connections must be <= client_max_connections")
+        if self.client_keepalive_expiry_s <= 0:
+            raise ValueError("client_keepalive_expiry_s must be > 0")
+        if self.max_in_flight_requests is not None and self.max_in_flight_requests <= 0:
+            raise ValueError("max_in_flight_requests must be > 0 when provided")
         if not self.request.url_template:
             raise ValueError("request.url_template is required")
         self.geo.resolve_bounds()

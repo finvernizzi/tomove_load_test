@@ -18,6 +18,9 @@ class LoadSimulator:
         self._config = config
         self._metrics = MetricsCollector()
         self._bounds = config.geo.resolve_bounds()
+        self._in_flight_limiter = (
+            asyncio.Semaphore(config.max_in_flight_requests) if config.max_in_flight_requests is not None else None
+        )
 
     async def run(self, stop_event: asyncio.Event | None = None) -> tuple[MetricsSnapshot, float]:
         if stop_event is None:
@@ -25,8 +28,40 @@ class LoadSimulator:
 
         start = time.perf_counter()
         end_time = start + self._config.duration_s
+        limits = httpx.Limits(
+            max_connections=self._config.client_max_connections,
+            max_keepalive_connections=self._config.client_max_keepalive_connections,
+            keepalive_expiry=self._config.client_keepalive_expiry_s,
+        )
+        client_kwargs = {
+            "timeout": self._config.request.timeout_s,
+            "follow_redirects": True,
+            "limits": limits,
+            "http2": self._config.client_http2,
+            "trust_env": self._config.client_trust_env,
+        }
+
+        try:
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                await self._execute_users(start, end_time, stop_event, client)
+        except ImportError as exc:
+            if self._config.client_http2 and "h2" in str(exc).lower():
+                print("HTTP/2 requested but 'h2' is not installed; falling back to HTTP/1.1.")
+                client_kwargs["http2"] = False
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    await self._execute_users(start, end_time, stop_event, client)
+            else:
+                raise
+
+        elapsed_s = time.perf_counter() - start
+        snapshot = await self._metrics.snapshot()
+        return snapshot, elapsed_s
+
+    async def _execute_users(
+        self, start: float, end_time: float, stop_event: asyncio.Event, client: httpx.AsyncClient
+    ) -> None:
         users = [
-            asyncio.create_task(self._run_user(user_id, end_time, stop_event), name=f"user-{user_id}")
+            asyncio.create_task(self._run_user(user_id, end_time, stop_event, client), name=f"user-{user_id}")
             for user_id in range(self._config.users)
         ]
         summary_task = asyncio.create_task(self._emit_realtime_summary(start, end_time, stop_event), name="summary")
@@ -38,11 +73,9 @@ class LoadSimulator:
         except asyncio.CancelledError:
             pass
 
-        elapsed_s = time.perf_counter() - start
-        snapshot = await self._metrics.snapshot()
-        return snapshot, elapsed_s
-
-    async def _run_user(self, user_id: int, end_time: float, stop_event: asyncio.Event) -> None:
+    async def _run_user(
+        self, user_id: int, end_time: float, stop_event: asyncio.Event, client: httpx.AsyncClient
+    ) -> None:
         ramp_offset_s = self._compute_ramp_offset(user_id)
         user_start_s = time.perf_counter()
         if ramp_offset_s > 0:
@@ -54,57 +87,62 @@ class LoadSimulator:
         sampler = GeoSampler(self._bounds, seed=_seed_for_user(self._config.random_seed, user_id))
         jitter_rng = random.Random(_seed_for_user(self._config.random_seed, user_id + 100_000))
         next_scheduled_s = user_start_s
-        async with httpx.AsyncClient(timeout=self._config.request.timeout_s, follow_redirects=True) as client:
-            while True:
-                if stop_event.is_set():
+        while True:
+            if stop_event.is_set():
+                break
+            jitter_s = jitter_rng.uniform(
+                self._config.random_delay_min_s,
+                self._config.random_delay_max_s,
+            )
+            target_s = next_scheduled_s + jitter_s
+            now_s = time.perf_counter()
+            if target_s > end_time:
+                break
+            if target_s > now_s:
+                should_stop = await self._sleep_or_stop(target_s - now_s, stop_event)
+                if should_stop:
                     break
-                jitter_s = jitter_rng.uniform(
-                    self._config.random_delay_min_s,
-                    self._config.random_delay_max_s,
-                )
-                target_s = next_scheduled_s + jitter_s
-                now_s = time.perf_counter()
-                if target_s > end_time:
-                    break
-                if target_s > now_s:
-                    should_stop = await self._sleep_or_stop(target_s - now_s, stop_event)
-                    if should_stop:
-                        break
 
-                await self._metrics.record_request_sent()
-                point = sampler.sample()
-                values = {
-                    "HOST": self._config.host,
-                    "DOMAIN": self._config.domain,
-                    "API_VERSION": self._config.api_version,
-                    "RANDOM_LAT": f"{point.lat:.6f}",
-                    "RANDOM_LNG": f"{point.lng:.6f}",
-                    "RADIUS": str(self._config.radius_m),
-                }
-                url = render_template(self._config.request.url_template, values)
-                body = (
-                    render_template(self._config.request.body_template, values)
-                    if self._config.request.body_template is not None
-                    else None
-                )
-                headers = {k: render_template(v, values) for k, v in self._config.request.headers.items()}
-                started = time.perf_counter()
+            await self._metrics.record_request_sent()
+            point = sampler.sample()
+            values = {
+                "HOST": self._config.host,
+                "DOMAIN": self._config.domain,
+                "API_VERSION": self._config.api_version,
+                "RANDOM_LAT": f"{point.lat:.6f}",
+                "RANDOM_LNG": f"{point.lng:.6f}",
+                "RADIUS": str(self._config.radius_m),
+            }
+            url = render_template(self._config.request.url_template, values)
+            body = (
+                render_template(self._config.request.body_template, values)
+                if self._config.request.body_template is not None
+                else None
+            )
+            headers = {k: render_template(v, values) for k, v in self._config.request.headers.items()}
+            started = time.perf_counter()
 
-                try:
+            try:
+                if self._in_flight_limiter is None:
                     response = await client.request(self._config.request.method, url, headers=headers, content=body)
-                except httpx.TimeoutException:
-                    await self._metrics.record_timeout()
-                except Exception:
-                    await self._metrics.record_failure()
                 else:
-                    elapsed_s = time.perf_counter() - started
-                    await self._metrics.record_response(
-                        response.status_code,
-                        elapsed_s,
-                        response.headers.get("content-type"),
-                        is_failure=self._is_failure_status(response.status_code),
-                    )
-                next_scheduled_s += self._config.interval_s
+                    async with self._in_flight_limiter:
+                        response = await client.request(
+                            self._config.request.method, url, headers=headers, content=body
+                        )
+            except httpx.TimeoutException:
+                await self._metrics.record_timeout()
+            except Exception:
+                await self._metrics.record_failure()
+            else:
+                elapsed_s = time.perf_counter() - started
+                await self._metrics.record_response(
+                    response.status_code,
+                    elapsed_s,
+                    response.headers.get("content-type"),
+                    is_failure=self._is_failure_status(response.status_code),
+                )
+            next_scheduled_s += self._config.interval_s
 
     async def _emit_realtime_summary(self, start_time: float, end_time: float, stop_event: asyncio.Event) -> None:
         refresh_s = min(self._config.summary_interval_s, 0.25)

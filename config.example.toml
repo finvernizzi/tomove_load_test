@@ -11,6 +11,14 @@ summary_interval_s = 5
 radius_m = 5000
 random_seed = 42
 failure_statuses = ["4xx", "5xx"]
+client_max_connections = 1000
+client_max_keepalive_connections = 200
+client_keepalive_expiry_s = 30
+client_http2 = false
+client_trust_env = true
+# Optional global cap for concurrent in-flight requests.
+# Useful when users are very high and you want to protect the load generator.
+# max_in_flight_requests = 500
 
 [request]
 method = "GET"

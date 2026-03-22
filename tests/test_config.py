@@ -73,3 +73,25 @@ def test_failure_statuses_invalid_value() -> None:
         assert "invalid failure status" in str(exc)
     else:
         raise AssertionError("ValueError not raised for invalid failure status")
+
+
+def test_http_client_tuning_defaults() -> None:
+    cfg = LoadTestConfig.from_dict(_base_payload())
+    assert cfg.client_max_connections == 1000
+    assert cfg.client_max_keepalive_connections == 200
+    assert cfg.client_keepalive_expiry_s == 30.0
+    assert cfg.client_http2 is False
+    assert cfg.client_trust_env is True
+    assert cfg.max_in_flight_requests is None
+
+
+def test_http_client_tuning_validation() -> None:
+    payload = _base_payload()
+    payload["client_max_connections"] = 10
+    payload["client_max_keepalive_connections"] = 20
+    try:
+        LoadTestConfig.from_dict(payload)
+    except ValueError as exc:
+        assert "client_max_keepalive_connections must be <= client_max_connections" in str(exc)
+    else:
+        raise AssertionError("ValueError not raised for invalid client tuning")

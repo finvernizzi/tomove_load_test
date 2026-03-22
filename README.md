@@ -64,6 +64,12 @@ Main fields:
 - `radius_m`: radius used in the request template.
 - `summary_interval_s`: real-time summary print interval.
 - `failure_statuses`: status codes/classes counted as failures (default `["4xx", "5xx"]`).
+- `client_max_connections`: max connections in shared HTTP pool (default `1000`).
+- `client_max_keepalive_connections`: max keepalive connections in pool (default `200`).
+- `client_keepalive_expiry_s`: keepalive expiry in seconds (default `30`).
+- `client_http2`: enable HTTP/2 when supported by server (default `false`).
+- `client_trust_env`: use proxy/SSL settings from environment (default `true`).
+- `max_in_flight_requests`: optional global cap for concurrent in-flight requests.
 - `request.method`: HTTP method.
 - `request.url_template`: URL template with placeholders.
 - `request.body_template`: optional request body template (useful for `POST`/`PUT`, supports placeholders).
@@ -106,6 +112,12 @@ Scheduling behavior:
 
 - Each user follows a fixed periodic schedule based on `interval_s`.
 - For each scheduled request, an additional random delay in `[random_delay_min_s, random_delay_max_s]` is applied.
+
+High-user tuning notes:
+
+- The simulator uses a single shared `httpx.AsyncClient` and connection pool to reduce client overhead.
+- For very high user counts, set `max_in_flight_requests` to prevent local machine saturation.
+- Tune `client_max_connections` and `client_max_keepalive_connections` according to target load and machine capacity.
 
 ## Testing
 

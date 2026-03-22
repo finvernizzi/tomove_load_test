@@ -1,20 +1,27 @@
 host = "edge.tomove.nextgcloud.com"
 domain = "quandopasso"
 api_version = "v2"
-users = 20
+users = 100
 interval_s = 180
 random_delay_min_s = 0
 random_delay_max_s = 5
 duration_s = 600
-ramp_up_s = 60
+ramp_up_s = 120
 summary_interval_s = 5
 radius_m = 5000
 random_seed = 42
+failure_statuses = ["4xx", "5xx"]
+client_max_connections = 400
+client_max_keepalive_connections = 200
+client_keepalive_expiry_s = 30
+client_http2 = true
+client_trust_env = true
+max_in_flight_requests = 120
 
 [request]
 method = "GET"
 url_template = "https://{{HOST}}/{{DOMAIN}}/mobile/{{API_VERSION}}/messages?domain={{DOMAIN}}&no_jws=true&lat={{RANDOM_LAT}}&lng={{RANDOM_LNG}}&radius={{RADIUS}}"
-timeout_s = 10
+timeout_s = 20
 
 [request.headers]
 Accept = "application/json"
