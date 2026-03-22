@@ -40,6 +40,21 @@ def render_realtime_progress(
     )
 
 
+def render_warmup_progress(
+    elapsed_s: float,
+    warmup_s: float,
+    active_users: int,
+    total_users: int,
+    width: int = 24,
+) -> str:
+    safe_warmup_s = max(warmup_s, 0.001)
+    progress = max(0.0, min(elapsed_s / safe_warmup_s, 1.0))
+    filled = int(round(progress * width))
+    bar = f"[{'#' * filled}{'-' * (width - filled)}]"
+    remaining_s = max(warmup_s - elapsed_s, 0.0)
+    return f"{bar} phase=warmup remaining={remaining_s:6.1f}s users={active_users}/{total_users}"
+
+
 def render_final_report(snapshot: MetricsSnapshot, elapsed_s: float, tested_url: str, emulated_users: int) -> str:
     lines = [
         "=== Load Test Final Report ===",

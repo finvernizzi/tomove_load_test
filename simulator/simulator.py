@@ -9,7 +9,7 @@ import httpx
 from simulator.config import LoadTestConfig
 from simulator.geo import GeoSampler
 from simulator.metrics import MetricsCollector, MetricsSnapshot
-from simulator.reporting import render_realtime_progress
+from simulator.reporting import render_realtime_progress, render_warmup_progress
 from simulator.template import render_template
 
 
@@ -78,28 +78,17 @@ class LoadSimulator:
             )
             for user_id in range(self._config.users)
         ]
-        summary_task: asyncio.Task[None] | None = None
-
-        if measurement_start > run_start:
-            should_stop = await self._sleep_or_stop(measurement_start - run_start, stop_event)
-            if not should_stop:
-                summary_task = asyncio.create_task(
-                    self._emit_realtime_summary(run_start, measurement_start, end_time, stop_event),
-                    name="summary",
-                )
-        else:
-            summary_task = asyncio.create_task(
-                self._emit_realtime_summary(run_start, measurement_start, end_time, stop_event),
-                name="summary",
-            )
+        summary_task = asyncio.create_task(
+            self._emit_realtime_summary(run_start, measurement_start, end_time, stop_event),
+            name="summary",
+        )
 
         await asyncio.gather(*users)
-        if summary_task is not None:
-            summary_task.cancel()
-            try:
-                await summary_task
-            except asyncio.CancelledError:
-                pass
+        summary_task.cancel()
+        try:
+            await summary_task
+        except asyncio.CancelledError:
+            pass
 
     async def _run_user(
         self,
@@ -196,17 +185,26 @@ class LoadSimulator:
         try:
             while True:
                 now_s = time.perf_counter()
-                elapsed_s = min(now_s - measurement_start, self._config.duration_s)
-                elapsed_s = max(elapsed_s, 0.0)
-                snapshot = self._metrics.snapshot()
                 active_users = self._active_users_at_elapsed(max(now_s - run_start, 0.0))
-                line = render_realtime_progress(
-                    snapshot=snapshot,
-                    elapsed_s=elapsed_s,
-                    duration_s=self._config.duration_s,
-                    active_users=active_users,
-                    total_users=self._config.users,
-                )
+                if now_s < measurement_start:
+                    warmup_elapsed_s = max(now_s - run_start, 0.0)
+                    line = render_warmup_progress(
+                        elapsed_s=warmup_elapsed_s,
+                        warmup_s=self._config.warmup_s,
+                        active_users=active_users,
+                        total_users=self._config.users,
+                    )
+                else:
+                    elapsed_s = min(now_s - measurement_start, self._config.duration_s)
+                    elapsed_s = max(elapsed_s, 0.0)
+                    snapshot = self._metrics.snapshot()
+                    line = render_realtime_progress(
+                        snapshot=snapshot,
+                        elapsed_s=elapsed_s,
+                        duration_s=self._config.duration_s,
+                        active_users=active_users,
+                        total_users=self._config.users,
+                    )
                 padding = " " * max(previous_length - len(line), 0)
                 print(f"\r{line}{padding}", end="", flush=True)
                 previous_length = len(line)

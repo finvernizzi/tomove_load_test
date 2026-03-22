@@ -1,5 +1,5 @@
 from simulator.metrics import MetricsSnapshot
-from simulator.reporting import render_final_report, render_realtime_progress, render_realtime_summary
+from simulator.reporting import render_final_report, render_realtime_progress, render_realtime_summary, render_warmup_progress
 
 
 def test_render_realtime_summary_includes_users() -> None:
@@ -77,3 +77,10 @@ def test_render_final_report_includes_url_and_users() -> None:
 
     assert "Tested URL: https://example.com/v2/messages?domain=mydomain" in report
     assert "Emulated users: 20" in report
+
+
+def test_render_warmup_progress_includes_phase_and_remaining() -> None:
+    line = render_warmup_progress(elapsed_s=10.0, warmup_s=40.0, active_users=12, total_users=100)
+    assert "phase=warmup" in line
+    assert "remaining=  30.0s" in line
+    assert "users=12/100" in line

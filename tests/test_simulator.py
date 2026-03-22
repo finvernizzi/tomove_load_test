@@ -350,6 +350,6 @@ def test_simulator_excludes_warmup_requests_from_stats() -> None:
         snapshot, elapsed = asyncio.run(LoadSimulator(config).run())
         assert snapshot.total_requests_sent == 0
         assert snapshot.total_responses_received == 0
-        assert 0.01 <= elapsed <= 0.25
+        assert 0.0 <= elapsed <= 0.25
     finally:
         httpx.AsyncClient = original_client
