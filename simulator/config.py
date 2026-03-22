@@ -51,6 +51,7 @@ class RequestConfig:
     read_timeout_s: float
     write_timeout_s: float
     pool_timeout_s: float
+    total_timeout_s: float
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,7 @@ class LoadTestConfig:
                 read_timeout_s=float(request_payload.get("read_timeout_s", request_payload.get("timeout_s", 10.0))),
                 write_timeout_s=float(request_payload.get("write_timeout_s", request_payload.get("timeout_s", 10.0))),
                 pool_timeout_s=float(request_payload.get("pool_timeout_s", request_payload.get("timeout_s", 10.0))),
+                total_timeout_s=float(request_payload.get("total_timeout_s", request_payload.get("timeout_s", 10.0))),
             ),
             geo=GeoConfig(
                 area=str(geo_payload["area"]),
@@ -176,6 +178,8 @@ class LoadTestConfig:
             raise ValueError("request.write_timeout_s must be > 0")
         if self.request.pool_timeout_s <= 0:
             raise ValueError("request.pool_timeout_s must be > 0")
+        if self.request.total_timeout_s <= 0:
+            raise ValueError("request.total_timeout_s must be > 0")
         if self.client_max_connections <= 0:
             raise ValueError("client_max_connections must be > 0")
         if self.client_max_keepalive_connections < 0:

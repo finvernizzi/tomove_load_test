@@ -32,6 +32,7 @@ timeout_s = 10
 # read_timeout_s = 15
 # write_timeout_s = 15
 # pool_timeout_s = 5
+# total_timeout_s = 15
 
 [request.headers]
 Accept = "application/json"

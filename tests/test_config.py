@@ -88,6 +88,7 @@ def test_http_client_tuning_defaults() -> None:
     assert cfg.request.read_timeout_s == cfg.request.timeout_s
     assert cfg.request.write_timeout_s == cfg.request.timeout_s
     assert cfg.request.pool_timeout_s == cfg.request.timeout_s
+    assert cfg.request.total_timeout_s == cfg.request.timeout_s
 
 
 def test_http_client_tuning_validation() -> None:
@@ -122,3 +123,14 @@ def test_warmup_validation() -> None:
         assert "warmup_s must be >= 0" in str(exc)
     else:
         raise AssertionError("ValueError not raised for invalid warmup")
+
+
+def test_total_timeout_validation() -> None:
+    payload = _base_payload()
+    payload["request"]["total_timeout_s"] = 0
+    try:
+        LoadTestConfig.from_dict(payload)
+    except ValueError as exc:
+        assert "request.total_timeout_s must be > 0" in str(exc)
+    else:
+        raise AssertionError("ValueError not raised for invalid total timeout")

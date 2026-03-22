@@ -80,6 +80,7 @@ Main fields:
 - `request.read_timeout_s`: optional read timeout override.
 - `request.write_timeout_s`: optional write timeout override.
 - `request.pool_timeout_s`: optional pool-acquire timeout override.
+- `request.total_timeout_s`: hard wall-clock timeout for a single request (recommended for strict SLA checks).
 - `geo.area`: selected named area (for example `Turin`).
 - `geo.named_areas.<Name>`: bounding box for random lat/lng generation.
 - `export.json_path`: optional output JSON path.

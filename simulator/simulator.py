@@ -153,13 +153,20 @@ class LoadSimulator:
             try:
                 if self._in_flight_limiter is None:
                     started = time.perf_counter()
-                    response = await client.request(self._config.request.method, url, headers=headers, content=body)
+                    response = await asyncio.wait_for(
+                        client.request(self._config.request.method, url, headers=headers, content=body),
+                        timeout=self._config.request.total_timeout_s,
+                    )
                 else:
                     async with self._in_flight_limiter:
                         started = time.perf_counter()
-                        response = await client.request(
-                            self._config.request.method, url, headers=headers, content=body
+                        response = await asyncio.wait_for(
+                            client.request(self._config.request.method, url, headers=headers, content=body),
+                            timeout=self._config.request.total_timeout_s,
                         )
+            except asyncio.TimeoutError:
+                if is_measured:
+                    self._metrics.record_timeout()
             except httpx.TimeoutException:
                 if is_measured:
                     self._metrics.record_timeout()

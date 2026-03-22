@@ -23,6 +23,7 @@ max_in_flight_requests = 300
 method = "GET"
 url_template = "https://{{HOST}}/{{DOMAIN}}/mobile/{{API_VERSION}}/messages?domain={{DOMAIN}}&no_jws=true&lat={{RANDOM_LAT}}&lng={{RANDOM_LNG}}&radius={{RADIUS}}"
 timeout_s = 30
+total_timeout_s = 30
 connect_timeout_s = 5
 read_timeout_s = 30
 write_timeout_s = 30
