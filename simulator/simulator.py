@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import asyncio
+import random
+import time
+
+import httpx
+
+from simulator.config import LoadTestConfig
+from simulator.geo import GeoSampler
+from simulator.metrics import MetricsCollector, MetricsSnapshot
+from simulator.reporting import render_realtime_progress
+from simulator.template import render_template
+
+
+class LoadSimulator:
+    def __init__(self, config: LoadTestConfig) -> None:
+        self._config = config
+        self._metrics = MetricsCollector()
+        self._bounds = config.geo.resolve_bounds()
+
+    async def run(self, stop_event: asyncio.Event | None = None) -> tuple[MetricsSnapshot, float]:
+        if stop_event is None:
+            stop_event = asyncio.Event()
+
+        start = time.perf_counter()
+        end_time = start + self._config.duration_s
+        users = [
+            asyncio.create_task(self._run_user(user_id, end_time, stop_event), name=f"user-{user_id}")
+            for user_id in range(self._config.users)
+        ]
+        summary_task = asyncio.create_task(self._emit_realtime_summary(start, end_time, stop_event), name="summary")
+
+        await asyncio.gather(*users)
+        summary_task.cancel()
+        try:
+            await summary_task
+        except asyncio.CancelledError:
+            pass
+
+        elapsed_s = time.perf_counter() - start
+        snapshot = await self._metrics.snapshot()
+        return snapshot, elapsed_s
+
+    async def _run_user(self, user_id: int, end_time: float, stop_event: asyncio.Event) -> None:
+        ramp_offset_s = self._compute_ramp_offset(user_id)
+        user_start_s = time.perf_counter()
+        if ramp_offset_s > 0:
+            should_stop = await self._sleep_or_stop(ramp_offset_s, stop_event)
+            if should_stop:
+                return
+            user_start_s += ramp_offset_s
+
+        sampler = GeoSampler(self._bounds, seed=_seed_for_user(self._config.random_seed, user_id))
+        jitter_rng = random.Random(_seed_for_user(self._config.random_seed, user_id + 100_000))
+        next_scheduled_s = user_start_s
+        async with httpx.AsyncClient(timeout=self._config.request.timeout_s, follow_redirects=True) as client:
+            while True:
+                if stop_event.is_set():
+                    break
+                jitter_s = jitter_rng.uniform(
+                    self._config.random_delay_min_s,
+                    self._config.random_delay_max_s,
+                )
+                target_s = next_scheduled_s + jitter_s
+                now_s = time.perf_counter()
+                if target_s > end_time:
+                    break
+                if target_s > now_s:
+                    should_stop = await self._sleep_or_stop(target_s - now_s, stop_event)
+                    if should_stop:
+                        break
+
+                await self._metrics.record_request_sent()
+                point = sampler.sample()
+                values = {
+                    "HOST": self._config.host,
+                    "DOMAIN": self._config.domain,
+                    "API_VERSION": self._config.api_version,
+                    "RANDOM_LAT": f"{point.lat:.6f}",
+                    "RANDOM_LNG": f"{point.lng:.6f}",
+                    "RADIUS": str(self._config.radius_m),
+                }
+                url = render_template(self._config.request.url_template, values)
+                body = (
+                    render_template(self._config.request.body_template, values)
+                    if self._config.request.body_template is not None
+                    else None
+                )
+                headers = {k: render_template(v, values) for k, v in self._config.request.headers.items()}
+                started = time.perf_counter()
+
+                try:
+                    response = await client.request(self._config.request.method, url, headers=headers, content=body)
+                except httpx.TimeoutException:
+                    await self._metrics.record_timeout()
+                except Exception:
+                    await self._metrics.record_failure()
+                else:
+                    elapsed_s = time.perf_counter() - started
+                    await self._metrics.record_response(
+                        response.status_code,
+                        elapsed_s,
+                        response.headers.get("content-type"),
+                        is_failure=self._is_failure_status(response.status_code),
+                    )
+                next_scheduled_s += self._config.interval_s
+
+    async def _emit_realtime_summary(self, start_time: float, end_time: float, stop_event: asyncio.Event) -> None:
+        refresh_s = min(self._config.summary_interval_s, 0.25)
+        previous_length = 0
+        try:
+            while True:
+                now_s = time.perf_counter()
+                elapsed_s = min(now_s - start_time, self._config.duration_s)
+                snapshot = await self._metrics.snapshot()
+                active_users = self._active_users_at_elapsed(elapsed_s)
+                line = render_realtime_progress(
+                    snapshot=snapshot,
+                    elapsed_s=elapsed_s,
+                    duration_s=self._config.duration_s,
+                    active_users=active_users,
+                    total_users=self._config.users,
+                )
+                padding = " " * max(previous_length - len(line), 0)
+                print(f"\r{line}{padding}", end="", flush=True)
+                previous_length = len(line)
+
+                if now_s >= end_time or stop_event.is_set():
+                    break
+                should_stop = await self._sleep_or_stop(refresh_s, stop_event)
+                if should_stop:
+                    break
+        finally:
+            if previous_length > 0:
+                print()
+
+    def _active_users_at_elapsed(self, elapsed_s: float) -> int:
+        if self._config.users <= 1 or self._config.ramp_up_s <= 0:
+            return self._config.users
+
+        slot = self._config.ramp_up_s / max(self._config.users - 1, 1)
+        if slot <= 0:
+            return self._config.users
+
+        started_users = int(elapsed_s / slot) + 1
+        return min(self._config.users, max(started_users, 1))
+
+    def _compute_ramp_offset(self, user_id: int) -> float:
+        if self._config.ramp_up_s <= 0 or self._config.users == 1:
+            return 0.0
+        slot = self._config.ramp_up_s / max(self._config.users - 1, 1)
+        return slot * user_id
+
+    async def _sleep_or_stop(self, duration_s: float, stop_event: asyncio.Event) -> bool:
+        if duration_s <= 0:
+            return stop_event.is_set()
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=duration_s)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    def _is_failure_status(self, status_code: int) -> bool:
+        status_code_str = str(status_code)
+        status_class = f"{status_code // 100}xx"
+        return status_code_str in self._config.failure_statuses or status_class in self._config.failure_statuses
+
+
+def _seed_for_user(base_seed: int | None, user_id: int) -> int | None:
+    if base_seed is None:
+        return None
+    return base_seed + user_id

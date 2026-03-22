@@ -1,0 +1,42 @@
+host = "westeurope-02.quandopasso.eu"
+domain = "quandopasso"
+api_version = "v2"
+users = 1000
+interval_s = 180
+random_delay_min_s = 0
+random_delay_max_s = 5
+duration_s = 300
+ramp_up_s = 60
+summary_interval_s = 5
+radius_m = 5000
+random_seed = 42
+failure_statuses = ["4xx", "5xx"]
+
+[request]
+method = "GET"
+url_template = "https://{{HOST}}/{{DOMAIN}}/mobile/{{API_VERSION}}/messages?domain={{DOMAIN}}&no_jws=true&lat={{RANDOM_LAT}}&lng={{RANDOM_LNG}}&radius={{RADIUS}}"
+timeout_s = 10
+
+[request.headers]
+Accept = "application/json"
+User-Agent = "traffic-simulator/1.0"
+X-Domain = "{{DOMAIN}}"
+
+[geo]
+area = "Turin"
+
+[geo.named_areas.Turin]
+min_lat = 45.0100
+max_lat = 45.1200
+min_lng = 7.5900
+max_lng = 7.7600
+
+[geo.named_areas.Milan]
+min_lat = 45.4000
+max_lat = 45.5300
+min_lng = 9.0500
+max_lng = 9.2900
+
+[export]
+json_path = "reports/latest_report.json"
+csv_path = "reports/latest_report.csv"
