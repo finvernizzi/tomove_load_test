@@ -96,6 +96,8 @@ class LoadSimulator:
         while True:
             if stop_event.is_set():
                 break
+            if time.perf_counter() >= end_time:
+                break
             jitter_s = jitter_rng.uniform(
                 self._config.random_delay_min_s,
                 self._config.random_delay_max_s,
@@ -108,6 +110,8 @@ class LoadSimulator:
                 should_stop = await self._sleep_or_stop(target_s - now_s, stop_event)
                 if should_stop:
                     break
+            if time.perf_counter() >= end_time:
+                break
 
             self._metrics.record_request_sent()
             point = sampler.sample()
@@ -126,13 +130,15 @@ class LoadSimulator:
                 else None
             )
             headers = {k: render_template(v, values) for k, v in self._config.request.headers.items()}
-            started = time.perf_counter()
+            started = 0.0
 
             try:
                 if self._in_flight_limiter is None:
+                    started = time.perf_counter()
                     response = await client.request(self._config.request.method, url, headers=headers, content=body)
                 else:
                     async with self._in_flight_limiter:
+                        started = time.perf_counter()
                         response = await client.request(
                             self._config.request.method, url, headers=headers, content=body
                         )

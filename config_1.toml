@@ -1,12 +1,12 @@
 host = "edge.tomove.nextgcloud.com"
 domain = "quandopasso"
 api_version = "v2"
-users = 100
+users = 750
 interval_s = 180
 random_delay_min_s = 0
 random_delay_max_s = 5
 duration_s = 600
-ramp_up_s = 120
+ramp_up_s = 240
 summary_interval_s = 5
 radius_m = 5000
 random_seed = 42
