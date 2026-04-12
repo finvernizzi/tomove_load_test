@@ -1,12 +1,12 @@
 host = "edge.tomove.nextgcloud.com:30080"
 domain = "quandopasso"
 api_version = "v2"
-users = 3000
-interval_s = 240
+users = 5000
+interval_s = 180
 random_delay_min_s = 0
 random_delay_max_s = 5
-duration_s = 100
-ramp_up_s = 60
+duration_s = 1200
+ramp_up_s = 180
 summary_interval_s = 5
 radius_m = 10
 random_seed = 42
@@ -37,5 +37,5 @@ min_lng = 9.0500
 max_lng = 9.2900
 
 [export]
-json_path = "reports/latest_report.json"
-csv_path = "reports/latest_report.csv"
+json_path = "reports/L8_nogw.json"
+csv_path = "reports/L8_nogw.csv"
