@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import time
 
@@ -99,16 +100,15 @@ class LoadSimulator:
         client: httpx.AsyncClient,
     ) -> None:
         ramp_offset_s = self._compute_ramp_offset(user_id)
-        user_start_s = time.perf_counter()
-        if ramp_offset_s > 0:
-            should_stop = await self._sleep_or_stop(ramp_offset_s, stop_event)
-            if should_stop:
-                return
-            user_start_s += ramp_offset_s
+        run_start_s = measurement_start - self._config.warmup_s
+        activation_s = run_start_s + ramp_offset_s
+        next_scheduled_s = run_start_s + self._compute_interval_phase(user_id)
+        if next_scheduled_s < activation_s:
+            missed_slots = math.ceil((activation_s - next_scheduled_s) / self._config.interval_s)
+            next_scheduled_s += missed_slots * self._config.interval_s
 
         sampler = GeoSampler(self._bounds, seed=_seed_for_user(self._config.random_seed, user_id))
         jitter_rng = random.Random(_seed_for_user(self._config.random_seed, user_id + 100_000))
-        next_scheduled_s = user_start_s
         while True:
             if stop_event.is_set():
                 break
@@ -240,6 +240,12 @@ class LoadSimulator:
         if self._config.ramp_up_s <= 0 or self._config.users == 1:
             return 0.0
         slot = self._config.ramp_up_s / max(self._config.users - 1, 1)
+        return slot * user_id
+
+    def _compute_interval_phase(self, user_id: int) -> float:
+        if self._config.users <= 1:
+            return 0.0
+        slot = self._config.interval_s / self._config.users
         return slot * user_id
 
     async def _sleep_or_stop(self, duration_s: float, stop_event: asyncio.Event) -> bool:
