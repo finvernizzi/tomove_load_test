@@ -1,0 +1,15 @@
+metric,value
+duration_s,1200.0054
+total_requests_sent,28260
+total_responses_received,28260
+failed_requests,0
+timed_out_requests,0
+avg_response_ms,9.9251
+min_response_ms,3.2212
+max_response_ms,150.8956
+p50_response_ms,0.0000
+p95_response_ms,20.0000
+p99_response_ms,30.0000
+status_class.2xx,28260
+status_code.200,28260
+response_type.application/json,28260

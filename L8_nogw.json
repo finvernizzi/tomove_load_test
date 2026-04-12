@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-04-12T09:51:01.951699+00:00",
+  "duration_s": 1200.0054030879837,
+  "metrics": {
+    "total_requests_sent": 28260,
+    "total_responses_received": 28260,
+    "status_classes": {
+      "2xx": 28260
+    },
+    "status_codes": {
+      "200": 28260
+    },
+    "response_types": {
+      "application/json": 28260
+    },
+    "failed_requests": 0,
+    "timed_out_requests": 0,
+    "avg_response_ms": 9.925086221177201,
+    "min_response_ms": 3.2212109945248812,
+    "max_response_ms": 150.89564901427366,
+    "p50_response_ms": 0.0,
+    "p95_response_ms": 20.0,
+    "p99_response_ms": 30.0
+  }
+}
